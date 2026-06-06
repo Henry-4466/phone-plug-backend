@@ -80,12 +80,9 @@ app.post('/api/pay', async (req, res) => {
         const formattedPhone = formatPhoneNumber(phone);
         const accessToken = await getAccessToken();
         
-        const timestamp = new Date().toISOString().replace(/[^0-9]/g, '').slice(0, 14);
-        const password = Buffer.from(
-            `${process.env.SHORTCODE}${process.env.PASSKEY}${timestamp}`
-        ).toString('base64');
-        
-        const requestBody = {
+       const timestamp = new Date().toISOString().replace(/[^0-9]/g, '').slice(0, 14);
+const password = 'test123';
+      const requestBody = {
     BusinessShortCode: process.env.SHORTCODE,
     Password: password,
     Timestamp: timestamp,
