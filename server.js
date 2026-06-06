@@ -86,18 +86,18 @@ app.post('/api/pay', async (req, res) => {
         ).toString('base64');
         
         const requestBody = {
-            BusinessShortCode: process.env.SHORTCODE,
-            Password: password,
-            Timestamp: timestamp,
-            TransactionType: 'CustomerPayBillOnline',
-            Amount: Math.round(amount),
-            PartyA: formattedPhone,
-            PartyB: process.env.SHORTCODE,
-            PhoneNumber: formattedPhone,
-            CallBackURL: process.env.CALLBACK_URL,
-            AccountReference: orderNumber || `PPH${Date.now()}`,
-            TransactionDesc: `Payment for order ${orderNumber || 'Phone Plug Hub'}`
-        };
+    BusinessShortCode: process.env.SHORTCODE,
+    Password: password,
+    Timestamp: timestamp,
+    TransactionType: 'CustomerPayBillOnline',
+    Amount: Math.round(amount),
+    PartyA: formattedPhone,
+    PartyB: process.env.SHORTCODE,
+    PhoneNumber: formattedPhone,
+    CallBackURL: process.env.CALLBACK_URL,
+    AccountReference: orderNumber || `PPH${Date.now()}`,
+    TransactionDesc: 'Payment'
+};
         
         console.log('Sending STK Push to:', `${BASE_URL}/mpesa/stkpush/v1/processrequest`);
         
