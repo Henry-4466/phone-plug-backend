@@ -184,8 +184,14 @@ app.post('/api/callback', async (req, res) => {
 });
 
 // Health check endpoint
-app.get('/api/health', (req, res) => {
-    res.json({ status: 'ok', timestamp: new Date().toISOString() });
+// Add this temporary route to test credentials
+app.get('/api/test-auth', async (req, res) => {
+    try {
+        const token = await getAccessToken();
+        res.json({ success: true, message: 'Token obtained', token: token.substring(0, 20) + '...' });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
 });
 
 // Start server
