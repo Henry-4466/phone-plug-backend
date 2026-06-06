@@ -7,20 +7,16 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Base URL for API calls (defaults to sandbox if not set)
+// Configuration
 const BASE_URL = process.env.BASE_URL || 'https://sandbox.safaricom.co.ke';
+const USE_MOCK = BASE_URL.includes('localhost') || BASE_URL.includes('4000');
 
-// Debug: Check if .env loaded correctly
-console.log('=== ENV VARIABLES CHECK ===');
-console.log('PORT:', process.env.PORT);
+console.log('=== CONFIGURATION ===');
 console.log('BASE_URL:', BASE_URL);
-console.log('SHORTCODE:', process.env.SHORTCODE);
-console.log('CALLBACK_URL:', process.env.CALLBACK_URL);
-console.log('CONSUMER_KEY exists:', process.env.CONSUMER_KEY ? 'YES' : 'NO');
-console.log('CONSUMER_SECRET exists:', process.env.CONSUMER_SECRET ? 'YES' : 'NO');
-console.log('===========================');
+console.log('USE_MOCK:', USE_MOCK);
+console.log('PORT:', process.env.PORT || 3000);
+console.log('====================');
 
-// Store transactions temporarily
 const transactions = new Map();
 
 // Helper: Get OAuth Token
@@ -33,15 +29,11 @@ async function getAccessToken() {
     try {
         const response = await axios.get(
             `${BASE_URL}/oauth/v1/generate?grant_type=client_credentials`,
-            {
-                headers: {
-                    Authorization: `Basic ${auth}`
-                }
-            }
+            { headers: { Authorization: `Basic ${auth}` } }
         );
         return response.data.access_token;
     } catch (error) {
-        console.error('Error getting token:', error.response?.data || error.message);
+        console.error('Token error:', error.response?.data || error.message);
         throw error;
     }
 }
@@ -49,138 +41,119 @@ async function getAccessToken() {
 // Helper: Format phone number
 function formatPhoneNumber(phone) {
     let cleaned = phone.replace(/\D/g, '');
-    
-    if (cleaned.startsWith('0')) {
-        cleaned = '254' + cleaned.substring(1);
-    } else if (cleaned.startsWith('7')) {
-        cleaned = '254' + cleaned;
-    }
-    
+    if (cleaned.startsWith('0')) cleaned = '254' + cleaned.substring(1);
+    else if (cleaned.startsWith('7')) cleaned = '254' + cleaned;
     return cleaned;
 }
 
-// API Endpoint: Initiate STK Push
+// API: Initiate STK Push
 app.post('/api/pay', async (req, res) => {
     const { phone, amount, orderNumber, customerName } = req.body;
     
     if (!phone || !amount || amount < 1) {
-        return res.status(400).json({ 
-            success: false, 
-            message: 'Valid phone number and amount are required' 
-        });
+        return res.status(400).json({ success: false, message: 'Valid phone number and amount required' });
     }
     
     try {
         const formattedPhone = formatPhoneNumber(phone);
         const accessToken = await getAccessToken();
-        
         const timestamp = new Date().toISOString().replace(/[^0-9]/g, '').slice(0, 14);
-        // For mpesa-mock, we use a simple password
-        const password = 'MTc0Mzc5YmZiMjc5ZjlhYTliZGJjZjE1OGU5N2RkNzFhNDY3Y2QyZTBjODkzMDU5YjEwZjc4ZTZiNzJhZGExZWQyYzkxOTIwMjYwNjA2MTU0MjU1';
         
-        const requestBody = {
-            BusinessShortCode: process.env.SHORTCODE,
-            Password: password,
-            Timestamp: timestamp,
-            TransactionType: 'CustomerPayBillOnline',
-            Amount: Math.round(amount),
-            PartyA: formattedPhone,
-            PartyB: process.env.SHORTCODE,
-            PhoneNumber: formattedPhone,
-            CallBackURL: process.env.CALLBACK_URL,
-            AccountReference: orderNumber || `ORD${Date.now().toString().slice(-8)}`,
-            TransactionDesc: 'TestPayment'
-        };
+        // Different request body for mock vs real
+        let requestBody;
         
-        console.log('Sending STK Push to:', `${BASE_URL}/mpesa/stkpush/v1/processrequest`);
+        if (USE_MOCK) {
+            // mpesa-mock format
+            requestBody = {
+                BusinessShortCode: '174379',
+                Password: 'test123',
+                Timestamp: timestamp,
+                TransactionType: 'CustomerPayBillOnline',
+                Amount: Math.round(amount),
+                PartyA: formattedPhone,
+                PartyB: '174379',
+                PhoneNumber: formattedPhone,
+                CallBackURL: process.env.CALLBACK_URL || 'http://localhost:3000/api/callback',
+                AccountReference: `ORD${Date.now().toString().slice(-6)}`,
+                TransactionDesc: 'PAY'
+            };
+        } else {
+            // Real Safaricom format
+            const password = Buffer.from(
+                `${process.env.SHORTCODE}${process.env.PASSKEY}${timestamp}`
+            ).toString('base64');
+            
+            requestBody = {
+                BusinessShortCode: process.env.SHORTCODE,
+                Password: password,
+                Timestamp: timestamp,
+                TransactionType: 'CustomerPayBillOnline',
+                Amount: Math.round(amount),
+                PartyA: formattedPhone,
+                PartyB: process.env.SHORTCODE,
+                PhoneNumber: formattedPhone,
+                CallBackURL: process.env.CALLBACK_URL,
+                AccountReference: orderNumber || `PPH${Date.now()}`,
+                TransactionDesc: 'Payment'
+            };
+        }
+        
+        console.log('Sending request to:', `${BASE_URL}/mpesa/stkpush/v1/processrequest`);
         console.log('Phone:', formattedPhone, 'Amount:', amount);
         
         const response = await axios.post(
             `${BASE_URL}/mpesa/stkpush/v1/processrequest`,
             requestBody,
-            {
-                headers: {
-                    Authorization: `Bearer ${accessToken}`
-                }
-            }
+            { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' } }
         );
         
         transactions.set(response.data.CheckoutRequestID, {
-            orderNumber: orderNumber,
-            phone: formattedPhone,
-            amount: amount,
-            customerName: customerName,
-            status: 'pending',
-            timestamp: new Date()
+            orderNumber, phone: formattedPhone, amount, customerName, status: 'pending', timestamp: new Date()
         });
         
-        res.json({
-            success: true,
-            message: 'STK Push sent successfully',
-            checkoutRequestId: response.data.CheckoutRequestID,
-            responseCode: response.data.ResponseCode
-        });
+        res.json({ success: true, message: 'STK Push sent', checkoutRequestId: response.data.CheckoutRequestID });
         
     } catch (error) {
-        console.error('STK Push error:', error.response?.data || error.message);
-        res.status(500).json({
-            success: false,
-            message: error.response?.data?.errorMessage || 'Failed to initiate payment'
-        });
+        console.error('Payment error:', error.response?.data || error.message);
+        res.status(500).json({ success: false, message: error.response?.data?.errorMessage || 'Payment failed' });
     }
 });
 
-// API Endpoint: Check transaction status
-app.post('/api/status', async (req, res) => {
+// API: Check status
+app.post('/api/status', (req, res) => {
     const { checkoutRequestId } = req.body;
-    
     const transaction = transactions.get(checkoutRequestId);
     if (transaction) {
-        res.json({
-            success: true,
-            status: transaction.status,
-            transaction: transaction
-        });
+        res.json({ success: true, status: transaction.status, transaction });
     } else {
-        res.json({
-            success: false,
-            message: 'Transaction not found'
-        });
+        res.json({ success: false, message: 'Transaction not found' });
     }
 });
 
-// Callback URL endpoint
-app.post('/api/callback', async (req, res) => {
-    console.log('Callback received');
-    console.log('Result Code:', req.body?.Body?.stkCallback?.ResultCode);
-    console.log('Result Desc:', req.body?.Body?.stkCallback?.ResultDesc);
+// API: Callback endpoint
+app.post('/api/callback', (req, res) => {
+    console.log('Callback received - ResultCode:', req.body?.Body?.stkCallback?.ResultCode);
     
     try {
         const callbackData = req.body.Body.stkCallback;
-        const checkoutRequestId = callbackData.CheckoutRequestID;
-        const resultCode = callbackData.ResultCode;
-        
-        const transaction = transactions.get(checkoutRequestId);
+        const transaction = transactions.get(callbackData.CheckoutRequestID);
         
         if (transaction) {
-            if (resultCode === 0) {
+            if (callbackData.ResultCode === 0) {
                 transaction.status = 'completed';
-                console.log(`✅ Payment successful for order ${transaction.orderNumber}`);
+                console.log(`✅ Payment successful for ${transaction.orderNumber}`);
             } else {
                 transaction.status = 'failed';
                 console.log(`❌ Payment failed: ${callbackData.ResultDesc}`);
             }
         }
-        
         res.json({ ResultCode: 0, ResultDesc: 'Success' });
-        
     } catch (error) {
-        console.error('Callback processing error:', error);
         res.json({ ResultCode: 0, ResultDesc: 'Success' });
     }
 });
 
-// Health check endpoint
+// Health check
 app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
@@ -189,6 +162,5 @@ app.get('/api/health', (req, res) => {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running on port ${PORT}`);
-    console.log(`Callback URL is: ${process.env.CALLBACK_URL}`);
-    console.log(`Using API base URL: ${BASE_URL}`);
+    console.log(`Base URL: ${BASE_URL}`);
 });
