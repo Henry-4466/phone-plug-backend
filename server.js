@@ -16,9 +16,8 @@ console.log('PORT:', process.env.PORT);
 console.log('BASE_URL:', BASE_URL);
 console.log('SHORTCODE:', process.env.SHORTCODE);
 console.log('CALLBACK_URL:', process.env.CALLBACK_URL);
-console.log('CONSUMER_KEY exists:', process.env.CONSUMER_KEY ? 'YES (length: ' + process.env.CONSUMER_KEY.length + ')' : 'NO');
-console.log('CONSUMER_SECRET exists:', process.env.CONSUMER_SECRET ? 'YES (length: ' + process.env.CONSUMER_SECRET.length + ')' : 'NO');
-console.log('PASSKEY exists:', process.env.PASSKEY ? 'YES' : 'NO');
+console.log('CONSUMER_KEY exists:', process.env.CONSUMER_KEY ? 'YES' : 'NO');
+console.log('CONSUMER_SECRET exists:', process.env.CONSUMER_SECRET ? 'YES' : 'NO');
 console.log('===========================');
 
 // Store transactions temporarily
@@ -28,8 +27,6 @@ const transactions = new Map();
 async function getAccessToken() {
     const consumerKey = process.env.CONSUMER_KEY;
     const consumerSecret = process.env.CONSUMER_SECRET;
-    
-    console.log('Getting token from:', `${BASE_URL}/oauth/v1/generate`);
     
     const auth = Buffer.from(`${consumerKey}:${consumerSecret}`).toString('base64');
     
@@ -42,7 +39,6 @@ async function getAccessToken() {
                 }
             }
         );
-        console.log('✅ Token obtained successfully');
         return response.data.access_token;
     } catch (error) {
         console.error('Error getting token:', error.response?.data || error.message);
@@ -56,9 +52,7 @@ function formatPhoneNumber(phone) {
     
     if (cleaned.startsWith('0')) {
         cleaned = '254' + cleaned.substring(1);
-    } else if (cleaned.startsWith('254')) {
-        cleaned = cleaned;
-    } else if (cleaned.startsWith('7') || cleaned.startsWith('1')) {
+    } else if (cleaned.startsWith('7')) {
         cleaned = '254' + cleaned;
     }
     
@@ -80,23 +74,26 @@ app.post('/api/pay', async (req, res) => {
         const formattedPhone = formatPhoneNumber(phone);
         const accessToken = await getAccessToken();
         
-       const timestamp = new Date().toISOString().replace(/[^0-9]/g, '').slice(0, 14);
-const password = 'test123';
-      const requestBody = {
-    BusinessShortCode: process.env.SHORTCODE,
-    Password: password,
-    Timestamp: timestamp,
-    TransactionType: 'CustomerPayBillOnline',
-    Amount: Math.round(amount),
-    PartyA: formattedPhone,
-    PartyB: process.env.SHORTCODE,
-    PhoneNumber: formattedPhone,
-    CallBackURL: process.env.CALLBACK_URL,
-    AccountReference: orderNumber || `PPH${Date.now()}`,
-    TransactionDesc: 'Payment'
-};
+        const timestamp = new Date().toISOString().replace(/[^0-9]/g, '').slice(0, 14);
+        // For mpesa-mock, we use a simple password
+        const password = 'MTc0Mzc5YmZiMjc5ZjlhYTliZGJjZjE1OGU5N2RkNzFhNDY3Y2QyZTBjODkzMDU5YjEwZjc4ZTZiNzJhZGExZWQyYzkxOTIwMjYwNjA2MTU0MjU1';
+        
+        const requestBody = {
+            BusinessShortCode: process.env.SHORTCODE,
+            Password: password,
+            Timestamp: timestamp,
+            TransactionType: 'CustomerPayBillOnline',
+            Amount: Math.round(amount),
+            PartyA: formattedPhone,
+            PartyB: process.env.SHORTCODE,
+            PhoneNumber: formattedPhone,
+            CallBackURL: process.env.CALLBACK_URL,
+            AccountReference: orderNumber || `ORD${Date.now().toString().slice(-8)}`,
+            TransactionDesc: 'TestPayment'
+        };
         
         console.log('Sending STK Push to:', `${BASE_URL}/mpesa/stkpush/v1/processrequest`);
+        console.log('Phone:', formattedPhone, 'Amount:', amount);
         
         const response = await axios.post(
             `${BASE_URL}/mpesa/stkpush/v1/processrequest`,
@@ -154,7 +151,9 @@ app.post('/api/status', async (req, res) => {
 
 // Callback URL endpoint
 app.post('/api/callback', async (req, res) => {
-    console.log('Callback received:', JSON.stringify(req.body, null, 2));
+    console.log('Callback received');
+    console.log('Result Code:', req.body?.Body?.stkCallback?.ResultCode);
+    console.log('Result Desc:', req.body?.Body?.stkCallback?.ResultDesc);
     
     try {
         const callbackData = req.body.Body.stkCallback;
@@ -166,18 +165,9 @@ app.post('/api/callback', async (req, res) => {
         if (transaction) {
             if (resultCode === 0) {
                 transaction.status = 'completed';
-                transaction.mpesaReceipt = callbackData.CallbackMetadata?.Item?.find(
-                    item => item.Name === 'MpesaReceiptNumber'
-                )?.Value;
-                transaction.transactionDate = callbackData.CallbackMetadata?.Item?.find(
-                    item => item.Name === 'TransactionDate'
-                )?.Value;
-                
                 console.log(`✅ Payment successful for order ${transaction.orderNumber}`);
-                console.log(`Receipt: ${transaction.mpesaReceipt}`);
             } else {
                 transaction.status = 'failed';
-                transaction.failureReason = callbackData.ResultDesc;
                 console.log(`❌ Payment failed: ${callbackData.ResultDesc}`);
             }
         }
