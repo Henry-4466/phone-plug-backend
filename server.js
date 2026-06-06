@@ -42,6 +42,7 @@ async function getAccessToken() {
                 }
             }
         );
+        console.log('✅ Token obtained successfully');
         return response.data.access_token;
     } catch (error) {
         console.error('Error getting token:', error.response?.data || error.message);
