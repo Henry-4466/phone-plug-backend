@@ -21,10 +21,10 @@ console.log('CONSUMER_SECRET exists:', process.env.CONSUMER_SECRET ? 'YES (lengt
 console.log('PASSKEY exists:', process.env.PASSKEY ? 'YES' : 'NO');
 console.log('===========================');
 
-// Store transactions temporarily (use a database in production)
+// Store transactions temporarily
 const transactions = new Map();
 
-// Helper: Get OAuth Token from Daraja or Mock
+// Helper: Get OAuth Token
 async function getAccessToken() {
     const consumerKey = process.env.CONSUMER_KEY;
     const consumerSecret = process.env.CONSUMER_SECRET;
@@ -50,7 +50,7 @@ async function getAccessToken() {
     }
 }
 
-// Helper: Format phone number to 254XXXXXXXXX format
+// Helper: Format phone number
 function formatPhoneNumber(phone) {
     let cleaned = phone.replace(/\D/g, '');
     
@@ -100,7 +100,6 @@ app.post('/api/pay', async (req, res) => {
         };
         
         console.log('Sending STK Push to:', `${BASE_URL}/mpesa/stkpush/v1/processrequest`);
-        console.log('Request body:', requestBody);
         
         const response = await axios.post(
             `${BASE_URL}/mpesa/stkpush/v1/processrequest`,
@@ -156,7 +155,7 @@ app.post('/api/status', async (req, res) => {
     }
 });
 
-// Callback URL: Safaricom sends payment confirmation here
+// Callback URL endpoint
 app.post('/api/callback', async (req, res) => {
     console.log('Callback received:', JSON.stringify(req.body, null, 2));
     
@@ -197,16 +196,6 @@ app.post('/api/callback', async (req, res) => {
 // Health check endpoint
 app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
-});
-
-// Test auth endpoint
-app.get('/api/test-auth', async (req, res) => {
-    try {
-        const token = await getAccessToken();
-        res.json({ success: true, message: 'Token obtained', token: token.substring(0, 20) + '...' });
-    } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
-    }
 });
 
 // Start server
