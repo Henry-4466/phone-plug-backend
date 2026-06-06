@@ -7,9 +7,13 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// Base URL for API calls (defaults to sandbox if not set)
+const BASE_URL = process.env.BASE_URL || 'https://sandbox.safaricom.co.ke';
+
 // Debug: Check if .env loaded correctly
 console.log('=== ENV VARIABLES CHECK ===');
 console.log('PORT:', process.env.PORT);
+console.log('BASE_URL:', BASE_URL);
 console.log('SHORTCODE:', process.env.SHORTCODE);
 console.log('CALLBACK_URL:', process.env.CALLBACK_URL);
 console.log('CONSUMER_KEY exists:', process.env.CONSUMER_KEY ? 'YES (length: ' + process.env.CONSUMER_KEY.length + ')' : 'NO');
@@ -20,13 +24,18 @@ console.log('===========================');
 // Store transactions temporarily (use a database in production)
 const transactions = new Map();
 
-// Helper: Get OAuth Token from Daraja
+// Helper: Get OAuth Token from Daraja or Mock
 async function getAccessToken() {
-    const auth = Buffer.from(`${process.env.CONSUMER_KEY}:${process.env.CONSUMER_SECRET}`).toString('base64');
+    const consumerKey = process.env.CONSUMER_KEY;
+    const consumerSecret = process.env.CONSUMER_SECRET;
+    
+    console.log('Getting token from:', `${BASE_URL}/oauth/v1/generate`);
+    
+    const auth = Buffer.from(`${consumerKey}:${consumerSecret}`).toString('base64');
     
     try {
         const response = await axios.get(
-            'https://sandbox.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials',
+            `${BASE_URL}/oauth/v1/generate?grant_type=client_credentials`,
             {
                 headers: {
                     Authorization: `Basic ${auth}`
@@ -89,10 +98,11 @@ app.post('/api/pay', async (req, res) => {
             TransactionDesc: `Payment for order ${orderNumber || 'Phone Plug Hub'}`
         };
         
-        console.log('Sending STK Push:', requestBody);
+        console.log('Sending STK Push to:', `${BASE_URL}/mpesa/stkpush/v1/processrequest`);
+        console.log('Request body:', requestBody);
         
         const response = await axios.post(
-            'https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest',
+            `${BASE_URL}/mpesa/stkpush/v1/processrequest`,
             requestBody,
             {
                 headers: {
@@ -184,7 +194,11 @@ app.post('/api/callback', async (req, res) => {
 });
 
 // Health check endpoint
-// Add this temporary route to test credentials
+app.get('/api/health', (req, res) => {
+    res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// Test auth endpoint
 app.get('/api/test-auth', async (req, res) => {
     try {
         const token = await getAccessToken();
@@ -199,4 +213,5 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running on port ${PORT}`);
     console.log(`Callback URL is: ${process.env.CALLBACK_URL}`);
+    console.log(`Using API base URL: ${BASE_URL}`);
 });
